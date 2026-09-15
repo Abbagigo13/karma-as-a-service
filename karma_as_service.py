@@ -1,12 +1,14 @@
-# v0.2.16
-# { "Depends": "py-genlayer:1jb45aa8ynh2a9c9xn3b7qqh8sm5q93hwfp7jqmwsfhh8jpz09h6" }
+# v0.3.0
+# { "Depends": "py-genlayer:5jycge4q8k23462jtb0b9fyey1s9qz928sz2nbrd9mg4sxqg2qng" }
 
-from genlayer import *
+import genlayer as gl
+from genlayer.types import *
+from genlayer.storage import TreeMap
 import json
 from datetime import datetime, timezone
 
 
-class AggregatedKarmaRegistry(gl.Contract):
+class AggregatedKarmaRegistry(gl.contract.Contract):
     platform_scores: TreeMap[str, u256]
     platform_scores_timestamp: TreeMap[str, u256]
 
@@ -41,6 +43,14 @@ class AggregatedKarmaRegistry(gl.Contract):
     weight_on_chain: u256
     weight_linkedin: u256
 
+    # ---------- ACCESS CONTROL ----------
+    # `owner` is the deployer. `validators` is the set of addresses allowed
+    # to write scores / resolve appeals -- previously `set_score` and
+    # `resolve_appeal` had NO authorization check at all, so anyone could
+    # set anyone's karma to anything. This closes that gap.
+    owner: str
+    validators: TreeMap[str, bool]
+
     def __init__(self):
         self.decay_enabled = True
         self.decay_per_day_inactive = u256(1)
@@ -53,6 +63,9 @@ class AggregatedKarmaRegistry(gl.Contract):
         self.weight_on_chain = u256(15)
         self.weight_linkedin = u256(5)
 
+        self.owner = str(gl.message.sender_address)
+        self.validators[self.owner] = True
+
     def _now(self) -> u256:
         return u256(int(datetime.now(timezone.utc).timestamp()))
 
@@ -61,6 +74,44 @@ class AggregatedKarmaRegistry(gl.Contract):
 
     def _platform_key(self, user: str, platform: str) -> str:
         return f"{user}:{platform.lower()}"
+
+    def _is_validator(self) -> bool:
+        caller = self._caller_str()
+        if caller == self.owner:
+            return True
+        return self.validators.get(caller, False)
+
+    def _require_validator(self):
+        if not self._is_validator():
+            raise Exception("Not authorized: caller is not a registered validator")
+
+    def _require_owner(self):
+        if self._caller_str() != self.owner:
+            raise Exception("Not authorized: caller is not the contract owner")
+
+    # ---------- VALIDATOR MANAGEMENT ----------
+
+    @gl.public.write
+    def add_validator(self, address: str) -> None:
+        self._require_owner()
+        self.validators[address] = True
+
+    @gl.public.write
+    def remove_validator(self, address: str) -> None:
+        self._require_owner()
+        if address == self.owner:
+            raise Exception("Cannot remove the owner as a validator")
+        self.validators[address] = False
+
+    @gl.public.view
+    def is_validator(self, address: str) -> bool:
+        if address == self.owner:
+            return True
+        return self.validators.get(address, False)
+
+    @gl.public.view
+    def get_owner(self) -> str:
+        return self.owner
 
     def _update_total_karma_with_categories(self, user: str):
         github = int(self.platform_scores.get(f"{user}:github", u256(0)))
@@ -154,6 +205,7 @@ class AggregatedKarmaRegistry(gl.Contract):
 
     @gl.public.write
     def set_score(self, user: str, platform: str, score: u256) -> None:
+        self._require_validator()
         if score > u256(100):
             raise Exception("Score must be 0-100")
         key = self._platform_key(user, platform)
@@ -258,6 +310,13 @@ class AggregatedKarmaRegistry(gl.Contract):
 
     @gl.public.write
     def appeal_score(self, user: str, platform: str, reason: str) -> None:
+        # Deliberately left permissionless: `user` is an off-chain handle
+        # (e.g. a GitHub username), not a wallet address, so there's no
+        # cheap on-chain way to verify the caller *is* that handle without
+        # a separate signature/attestation flow. Filing an appeal only
+        # flags a review -- it can't mutate a score by itself, since
+        # resolve_appeal (below) is validator-gated. If you add
+        # handle-ownership verification later, tighten this to check it.
         key = self._platform_key(user, platform)
         if int(self.platform_scores.get(key, u256(0))) == 0:
             raise Exception(f"No {platform.lower()} score found")
@@ -287,6 +346,7 @@ class AggregatedKarmaRegistry(gl.Contract):
 
     @gl.public.write
     def resolve_appeal(self, user: str, platform: str, new_score: u256) -> None:
+        self._require_validator()
         key = self._platform_key(user, platform)
         if self.appeal_status.get(key, "NONE") != "PENDING":
             raise Exception("No pending appeal found")
