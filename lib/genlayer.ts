@@ -1,10 +1,16 @@
 import { createClient } from 'genlayer-js';
-import { studionet } from 'genlayer-js/chains';
+// NOTE: `studioDevnet` requires the genlayer-js v2.0 RC package (Studio Next /
+// studio-dev). Upgrade genlayer-js before this import resolves.
+import { studioDevnet } from 'genlayer-js/chains';
 
-export const CONTRACT_ADDRESS = '0x5fFb2BaD2F0FD1B3E7bF92827AB1bBA32C4F5597';
+// Previous Studionet deployment (kept for reference / rollback):
+// export const CONTRACT_ADDRESS = '0x5fFb2BaD2F0FD1B3E7bF92827AB1bBA32C4F5597';
+
+// Deployed to Studio Next (chain ID 61997)
+export const CONTRACT_ADDRESS = '0xb0C455c0ab09f7a48aF644187b772bD661ac54E8';
 
 export const client = createClient({
-  chain: studionet,
+  chain: studioDevnet,
 });
 
 // ---------- READ FUNCTIONS ----------
