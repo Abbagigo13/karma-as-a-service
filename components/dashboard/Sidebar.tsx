@@ -15,24 +15,29 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
-type NavItem = { label: string; icon: LucideIcon; badge?: string };
+type NavItem = {
+  label: string;
+  icon: LucideIcon;
+  href: string;
+  badge?: string;
+};
 
 const primary: NavItem[] = [
-  { label: "Overview", icon: LayoutDashboard },
-  { label: "Validators", icon: ShieldCheck, badge: "12" },
-  { label: "Community", icon: Users },
-  { label: "Activity", icon: Activity },
-  { label: "Appeals", icon: Gavel, badge: "2" },
+  { label: "Overview", icon: LayoutDashboard, href: "/dashboard" },
+  { label: "Validators", icon: ShieldCheck, href: "/dashboard/validators", badge: "12" },
+  { label: "Community", icon: Users, href: "/dashboard/community" },
+  { label: "Activity", icon: Activity, href: "/dashboard/activity" },
+  { label: "Appeals", icon: Gavel, href: "/dashboard/appeals", badge: "2" },
 ];
 
 const secondary: NavItem[] = [
-  { label: "Wallet", icon: Wallet },
-  { label: "Settings", icon: Settings },
+  { label: "Wallet", icon: Wallet, href: "/dashboard/wallet" },
+  { label: "Settings", icon: Settings, href: "/dashboard/settings" },
 ];
 
-/** Persistent dashboard sidebar. Collapses to icons on desktop, drawer on mobile. */
 export function Sidebar({
   open,
   onClose,
@@ -40,9 +45,8 @@ export function Sidebar({
   open: boolean;
   onClose: () => void;
 }) {
-  const [active, setActive] = useState("Overview");
+  const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
-  // On desktop the sidebar is always visible; below lg it slides in as a drawer.
   const [isDesktop, setIsDesktop] = useState(false);
 
   useEffect(() => {
@@ -57,7 +61,6 @@ export function Sidebar({
 
   return (
     <>
-      {/* mobile backdrop */}
       <motion.div
         initial={false}
         animate={{ opacity: open ? 1 : 0, pointerEvents: open ? "auto" : "none" }}
@@ -86,7 +89,8 @@ export function Sidebar({
             </span>
             {!collapsed && (
               <span className="truncate text-[15px] font-semibold tracking-tight text-slate-100">
-                Karma<span className="mx-0.5 text-slate-600">/</span><span className="text-gradient">aaS</span>
+                Karma<span className="mx-0.5 text-slate-600">/</span>
+                <span className="text-gradient">aaS</span>
               </span>
             )}
           </Link>
@@ -104,9 +108,9 @@ export function Sidebar({
               <NavRow
                 key={item.label}
                 item={item}
-                active={active === item.label}
+                active={isActive(pathname, item.href)}
                 collapsed={collapsed}
-                onClick={() => setActive(item.label)}
+                onClick={onClose}
               />
             ))}
           </ul>
@@ -121,9 +125,9 @@ export function Sidebar({
               <NavRow
                 key={item.label}
                 item={item}
-                active={active === item.label}
+                active={isActive(pathname, item.href)}
                 collapsed={collapsed}
-                onClick={() => setActive(item.label)}
+                onClick={onClose}
               />
             ))}
           </ul>
@@ -143,7 +147,9 @@ export function Sidebar({
                   Network healthy
                 </p>
               </div>
-              <p className="mt-1.5 font-mono text-[11px] text-slate-500">Asimov · block 4,182,904</p>
+              <p className="mt-1.5 font-mono text-[11px] text-slate-500">
+                Asimov · block 4,182,904
+              </p>
               <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/10">
                 <motion.div
                   className="h-full w-1/3 rounded-full bg-gradient-to-r from-cyan-400 to-fuchsia-400"
@@ -167,7 +173,11 @@ export function Sidebar({
               onClick={() => setCollapsed((v) => !v)}
               className="hidden flex-1 items-center justify-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.02] px-2 py-2 text-[11px] text-slate-500 transition-colors hover:text-slate-200 lg:flex"
             >
-              <ChevronLeft className={`h-3.5 w-3.5 transition-transform ${collapsed ? "rotate-180" : ""}`} />
+              <ChevronLeft
+                className={`h-3.5 w-3.5 transition-transform ${
+                  collapsed ? "rotate-180" : ""
+                }`}
+              />
               {!collapsed && "Collapse"}
             </button>
             <Link
@@ -184,6 +194,12 @@ export function Sidebar({
   );
 }
 
+function isActive(pathname: string | null, href: string): boolean {
+  if (!pathname) return false;
+  if (href === "/dashboard") return pathname === "/dashboard";
+  return pathname.startsWith(href);
+}
+
 function NavRow({
   item,
   active,
@@ -197,7 +213,8 @@ function NavRow({
 }) {
   return (
     <li>
-      <button
+      <Link
+        href={item.href}
         onClick={onClick}
         title={collapsed ? item.label : undefined}
         className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors ${
@@ -215,7 +232,9 @@ function NavRow({
           <span className="absolute -left-3 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-gradient-to-b from-cyan-400 to-fuchsia-400 shadow-[0_0_12px_2px_rgba(34,211,238,0.7)]" />
         )}
         <item.icon
-          className={`relative h-4.5 w-4.5 shrink-0 ${active ? "text-cyan-300" : "text-slate-500 group-hover:text-slate-300"}`}
+          className={`relative h-4.5 w-4.5 shrink-0 ${
+            active ? "text-cyan-300" : "text-slate-500 group-hover:text-slate-300"
+          }`}
           strokeWidth={2}
         />
         {!collapsed && <span className="relative truncate font-medium">{item.label}</span>}
@@ -224,7 +243,7 @@ function NavRow({
             {item.badge}
           </span>
         ) : null}
-      </button>
+      </Link>
     </li>
   );
 }

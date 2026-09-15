@@ -13,6 +13,8 @@ const STUDIONET_PARAMS = {
   blockExplorerUrls: ['https://explorer-studio.genlayer.com'],
 };
 
+const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
+
 // ---------- EIP-6963 DISCOVERY ----------
 
 type WalletInfo = {
@@ -141,15 +143,23 @@ export async function createWalletClient(provider?: any) {
     chosen = detected.provider;
   }
 
+  // Switch the wallet to Studionet (adds it if missing)
   await ensureStudionet(chosen);
 
+  // Request accounts
   const accounts: string[] = await chosen.request({ method: 'eth_requestAccounts' });
   const account = accounts[0] as `0x${string}`;
 
+  // Build the GenLayer client with an EXPLICIT RPC URL.
+  // This ensures reads (nonce, gas, chain data) go directly to the RPC
+  // instead of being routed through the wallet, which fails with "Failed to fetch".
   const client = createClient({
     chain: studionet,
     account: account,
-    provider: chosen,
+    transport: {
+      type: 'http',
+      url: STUDIONET_RPC_URL,
+    },
   } as any);
 
   return { client, account };
