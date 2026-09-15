@@ -1,8 +1,17 @@
 import { createClient } from 'genlayer-js';
-import { studionet } from 'genlayer-js/chains';
+// NOTE: `studioDevnet` is the v2.0 RC export for the Studio Next / studio-dev
+// network. It ships with the genlayer-js v2.0 RC package -- make sure you've
+// upgraded (npm install genlayer-js@<v2.0-RC tag>) before this resolves.
+import { studionet, studioDevnet } from 'genlayer-js/chains';
+
+// ---------- NETWORK SELECTION ----------
+// Agent Tank requires deployment on Studio Next. Studionet is kept wired up
+// as a fallback in case you need to flip back during testing.
+export type NetworkName = 'studio-next' | 'studionet';
+export const ACTIVE_NETWORK: NetworkName = 'studio-next';
 
 const STUDIONET_PARAMS = {
-  chainId: '0xF22F',
+  chainId: '0xF22F', // 61999
   chainName: 'GenLayer Studionet',
   nativeCurrency: {
     name: 'GEN',
@@ -13,7 +22,32 @@ const STUDIONET_PARAMS = {
   blockExplorerUrls: ['https://explorer-studio.genlayer.com'],
 };
 
+const STUDIO_NEXT_PARAMS = {
+  chainId: '0xF22D', // 61997
+  chainName: 'GenLayer Studio Next',
+  nativeCurrency: {
+    name: 'GEN',
+    symbol: 'GEN',
+    decimals: 18,
+  },
+  rpcUrls: ['https://studio-next.genlayer.com/api'],
+  blockExplorerUrls: ['https://explorer-studio-dev.genlayer.com'],
+};
+
 const STUDIONET_RPC_URL = 'https://studio.genlayer.com/api';
+const STUDIO_NEXT_RPC_URL = 'https://studio-next.genlayer.com/api';
+
+function paramsFor(network: NetworkName) {
+  return network === 'studio-next' ? STUDIO_NEXT_PARAMS : STUDIONET_PARAMS;
+}
+
+function rpcUrlFor(network: NetworkName) {
+  return network === 'studio-next' ? STUDIO_NEXT_RPC_URL : STUDIONET_RPC_URL;
+}
+
+function chainFor(network: NetworkName) {
+  return network === 'studio-next' ? studioDevnet : studionet;
+}
 
 // ---------- EIP-6963 DISCOVERY ----------
 
@@ -73,17 +107,18 @@ export function detectWallet(): { name: string; provider: any } | null {
 
 // ---------- CHAIN SWITCH ----------
 
-async function ensureStudionet(provider: any) {
+async function ensureChain(provider: any, network: NetworkName) {
+  const params = paramsFor(network);
   try {
     await provider.request({
       method: 'wallet_switchEthereumChain',
-      params: [{ chainId: STUDIONET_PARAMS.chainId }],
+      params: [{ chainId: params.chainId }],
     });
   } catch (switchError: any) {
     if (switchError.code === 4902 || switchError?.data?.originalError?.code === 4902) {
       await provider.request({
         method: 'wallet_addEthereumChain',
-        params: [STUDIONET_PARAMS],
+        params: [params],
       });
     } else {
       throw switchError;
@@ -130,7 +165,7 @@ export async function getConnectedAccount(): Promise<string | null> {
 
 // ---------- WRITE CLIENT ----------
 
-export async function createWalletClient(provider?: any) {
+export async function createWalletClient(provider?: any, network: NetworkName = ACTIVE_NETWORK) {
   let chosen = provider;
 
   if (!chosen) {
@@ -143,8 +178,8 @@ export async function createWalletClient(provider?: any) {
     chosen = detected.provider;
   }
 
-  // Switch the wallet to Studionet (adds it if missing)
-  await ensureStudionet(chosen);
+  // Switch the wallet to the active network (adds it if missing)
+  await ensureChain(chosen, network);
 
   // Request accounts
   const accounts: string[] = await chosen.request({ method: 'eth_requestAccounts' });
@@ -154,11 +189,11 @@ export async function createWalletClient(provider?: any) {
   // This ensures reads (nonce, gas, chain data) go directly to the RPC
   // instead of being routed through the wallet, which fails with "Failed to fetch".
   const client = createClient({
-    chain: studionet,
+    chain: chainFor(network),
     account: account,
     transport: {
       type: 'http',
-      url: STUDIONET_RPC_URL,
+      url: rpcUrlFor(network),
     },
   } as any);
 
