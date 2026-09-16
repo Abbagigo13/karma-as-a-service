@@ -5,12 +5,14 @@ import { AlertTriangle, CheckCircle2, Gavel, Loader2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { submitAppeal } from "@/lib/genlayer";
 import { createWalletClient, detectAllWallets } from "@/lib/wallet";
+import { addKnownHandle } from "@/lib/known-handles";
 
 type Props = {
   open: boolean;
   onClose: () => void;
   handle: string;
   score: number;
+  platforms?: { platform: string; score: number }[];
 };
 
 const reasons = [
@@ -20,8 +22,13 @@ const reasons = [
   "Wrong identity linked",
 ];
 
-export function AppealModal({ open, onClose, handle, score }: Props) {
+// Order must match the contract's platform keys / ScoreWriter's PLATFORMS.
+const PLATFORM_KEYS = ["github", "reddit", "discord", "twitter", "on_chain", "linkedin"];
+const PLATFORM_LABELS = ["GitHub", "Reddit", "Discord", "Twitter", "On-Chain", "LinkedIn"];
+
+export function AppealModal({ open, onClose, handle, score, platforms }: Props) {
   const [reason, setReason] = useState(reasons[0]);
+  const [platform, setPlatform] = useState(PLATFORM_KEYS[0]);
   const [phase, setPhase] = useState<"form" | "submitting" | "done" | "error">("form");
   const [txHash, setTxHash] = useState<string>("");
   const [errorMsg, setErrorMsg] = useState<string>("");
@@ -34,7 +41,11 @@ export function AppealModal({ open, onClose, handle, score }: Props) {
     setTxHash("");
     setErrorMsg("");
     setAvailableWallets([]);
-  }, [open]);
+    // Default to the first platform that actually has a nonzero score,
+    // instead of always defaulting to github.
+    const firstScored = platforms?.findIndex((p) => p.score > 0) ?? -1;
+    setPlatform(firstScored >= 0 ? PLATFORM_KEYS[firstScored] : PLATFORM_KEYS[0]);
+  }, [open, platforms]);
 
   async function handleSubmit() {
     setErrorMsg("");
@@ -67,11 +78,12 @@ export function AppealModal({ open, onClose, handle, score }: Props) {
       // (switches chain, or adds it if missing) before requesting accounts.
       const { client: walletClient } = await createWalletClient(wallet.provider);
 
-      const result = await submitAppeal(walletClient, handle, "github", reason);
+      const result = await submitAppeal(walletClient, handle, platform, reason);
 
       if (result.success) {
         setTxHash(result.hash ?? "");
         setPhase("done");
+        addKnownHandle(handle, platform);
       } else {
         setErrorMsg(result.error ?? "Transaction failed");
         setPhase("error");
@@ -128,6 +140,31 @@ export function AppealModal({ open, onClose, handle, score }: Props) {
                     Appealing opens a fresh round with a new validator set on GenLayer. The
                     transaction requires a wallet signature.
                   </p>
+
+                  <div className="mt-5">
+                    <p className="mb-1.5 text-xs font-medium text-slate-400">Platform</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {PLATFORM_KEYS.map((p, i) => (
+                        <button
+                          key={p}
+                          onClick={() => setPlatform(p)}
+                          disabled={phase === "submitting"}
+                          className={`rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                            platform === p
+                              ? "border-cyan-300/40 bg-cyan-400/10 text-cyan-200"
+                              : "border-white/[0.07] bg-white/[0.02] text-slate-400 hover:border-white/15"
+                          }`}
+                        >
+                          {PLATFORM_LABELS[i]}
+                          {platforms?.[i] ? (
+                            <span className="ml-1 text-[10px] opacity-60">
+                              {platforms[i].score}
+                            </span>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
 
                   <div className="mt-5 space-y-2">
                     {reasons.map((r) => (
@@ -210,7 +247,8 @@ export function AppealModal({ open, onClose, handle, score }: Props) {
                   <h3 className="mt-5 text-lg font-semibold text-slate-50">Appeal submitted</h3>
                   <p className="mx-auto mt-2 max-w-sm text-[13px] leading-relaxed text-slate-400">
                     The validators will re-evaluate <span className="text-slate-200">@{handle}</span>{" "}
-                    for “{reason.toLowerCase()}”. The result is written on-chain.
+                    ({PLATFORM_LABELS[PLATFORM_KEYS.indexOf(platform)]}) for “
+                    {reason.toLowerCase()}”. The result is written on-chain.
                   </p>
                   <p className="mt-3 font-mono text-[11px] text-cyan-400/70 break-all">
                     tx {txHash ? txHash.slice(0, 10) + "…" + txHash.slice(-6) : "pending"}
