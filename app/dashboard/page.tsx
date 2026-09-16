@@ -299,6 +299,7 @@ export default function DashboardPage() {
         onClose={() => setAppealOpen(false)}
         handle={profile?.handle ?? query}
         score={profile?.score ?? 0}
+        platforms={profile?.platforms}
       />
     </div>
   );
