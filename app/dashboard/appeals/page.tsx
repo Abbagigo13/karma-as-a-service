@@ -6,16 +6,18 @@ import {
   CheckCircle2,
   Gavel,
   Loader2,
+  RefreshCw,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { Reveal } from "@/components/ui/Reveal";
 import { AnimatedBackground } from "@/components/ui/AnimatedBackground";
-import { resolveAppeal } from "@/lib/genlayer";
+import { resolveAppeal, getAppealStatus, getPlatformScore } from "@/lib/genlayer";
 import { createWalletClient, discoverWallets, connectWithProvider } from "@/lib/wallet";
+import { getKnownHandles } from "@/lib/known-handles";
 
 type Appeal = {
-  id: number;
+  id: string;
   handle: string;
   platform: string;
   currentScore: number;
@@ -25,47 +27,75 @@ type Appeal = {
   status: "PENDING" | "RESOLVED";
 };
 
-const INITIAL_APPEALS: Appeal[] = [
-  {
-    id: 1,
-    handle: "alice",
-    platform: "github",
-    currentScore: 60,
-    reason: "Contribution evidence was incomplete",
-    initiator: "0x2a9d…4454",
-    timestamp: "3 hours ago",
-    status: "PENDING",
-  },
-  {
-    id: 2,
-    handle: "abba",
-    platform: "twitter",
-    currentScore: 55,
-    reason: "Community sentiment misread",
-    initiator: "0x4f21…8a2c",
-    timestamp: "1 day ago",
-    status: "PENDING",
-  },
-  {
-    id: 3,
-    handle: "alice",
-    platform: "github",
-    currentScore: 55,
-    reason: "Decay applied during active period",
-    initiator: "0x2a9d…4454",
-    timestamp: "5 days ago",
-    status: "RESOLVED",
-  },
-];
+function shortAddr(addr: string): string {
+  if (!addr || addr.length < 10) return addr || "unknown";
+  return `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+}
+
+function timeAgo(unixSeconds: number): string {
+  if (!unixSeconds) return "unknown time";
+  const diffMs = Date.now() - unixSeconds * 1000;
+  const mins = Math.floor(diffMs / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins} min ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+async function loadRealAppeals(): Promise<Appeal[]> {
+  const known = getKnownHandles();
+  if (known.length === 0) return [];
+
+  const results = await Promise.all(
+    known.map(async ({ handle, platform }) => {
+      const [status, currentScore] = await Promise.all([
+        getAppealStatus(handle, platform),
+        getPlatformScore(handle, platform),
+      ]);
+      if (!status?.is_appealed) return null;
+      const appeal: Appeal = {
+        id: `${handle}:${platform}`,
+        handle,
+        platform,
+        currentScore,
+        reason: status.reason || "",
+        initiator: shortAddr(status.initiator || ""),
+        timestamp: timeAgo(Number(status.timestamp) || 0),
+        status: status.status === "RESOLVED" ? "RESOLVED" : "PENDING",
+      };
+      return appeal;
+    }),
+  );
+
+  return results.filter((a): a is Appeal => a !== null);
+}
 
 export default function AppealsPage() {
-  const [appeals, setAppeals] = useState<Appeal[]>(INITIAL_APPEALS);
+  const [appeals, setAppeals] = useState<Appeal[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"PENDING" | "RESOLVED">("PENDING");
   const [selected, setSelected] = useState<Appeal | null>(null);
 
-  const filtered = appeals.filter((a) => a.status === tab);
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const real = await loadRealAppeals();
+      setAppeals(real);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  function handleResolved(id: number) {
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  const filtered = appeals.filter((a) => a.status === tab);
+  const noKnownHandles = !loading && getKnownHandles().length === 0;
+
+  function handleResolved(id: string) {
     setAppeals((prev) =>
       prev.map((a) => (a.id === id ? { ...a, status: "RESOLVED" as const } : a)),
     );
@@ -79,18 +109,30 @@ export default function AppealsPage() {
       <main className="px-5 pb-20 pt-10 sm:px-8">
         <div className="mx-auto max-w-5xl">
           <Reveal>
-            <div className="mb-8">
-              <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
-                <Gavel className="h-3 w-3" />
-                Internet Court
+            <div className="mb-8 flex items-start justify-between gap-4">
+              <div>
+                <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/25 bg-amber-400/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-amber-300">
+                  <Gavel className="h-3 w-3" />
+                  Internet Court
+                </div>
+                <h1 className="mt-4 text-4xl font-bold tracking-tight text-slate-50 sm:text-5xl">
+                  Appeals &amp; <span className="text-gradient-animated">disputes</span>
+                </h1>
+                <p className="mt-3 max-w-2xl text-sm text-slate-500">
+                  Anyone can appeal a score. Validators review the evidence and
+                  write a corrected score on-chain. Shown here: real appeal
+                  status read live from the Karma registry for every handle
+                  you've checked or appealed from this browser.
+                </p>
               </div>
-              <h1 className="mt-4 text-4xl font-bold tracking-tight text-slate-50 sm:text-5xl">
-                Appeals &amp; <span className="text-gradient-animated">disputes</span>
-              </h1>
-              <p className="mt-3 max-w-2xl text-sm text-slate-500">
-                Anyone can appeal a score. The Internet Court of validators
-                reviews the evidence and writes a corrected score on-chain.
-              </p>
+              <button
+                onClick={refresh}
+                disabled={loading}
+                className="btn-ghost mt-1 shrink-0 gap-2 px-3 py-2 text-xs"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
             </div>
           </Reveal>
 
@@ -127,7 +169,34 @@ export default function AppealsPage() {
           {/* Appeals list */}
           <div className="space-y-3">
             <AnimatePresence mode="wait">
-              {filtered.length === 0 ? (
+              {loading ? (
+                <motion.div
+                  key="loading"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-12 text-center backdrop-blur-xl"
+                >
+                  <Loader2 className="mx-auto h-8 w-8 animate-spin text-cyan-300 mb-3" />
+                  <p className="text-sm text-slate-400">Reading appeal status on-chain…</p>
+                </motion.div>
+              ) : noKnownHandles ? (
+                <motion.div
+                  key="no-known"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="rounded-2xl border border-white/[0.08] bg-white/[0.02] p-12 text-center backdrop-blur-xl"
+                >
+                  <Gavel className="mx-auto h-10 w-10 text-slate-500 mb-3" />
+                  <p className="text-sm text-slate-400">
+                    No handles checked yet in this browser. Submit a score or
+                    file an appeal from the Overview page, then come back here
+                    — this list reads live on-chain status, it can't yet
+                    enumerate every appeal on the network.
+                  </p>
+                </motion.div>
+              ) : filtered.length === 0 ? (
                 <motion.div
                   key="empty"
                   initial={{ opacity: 0 }}
@@ -138,7 +207,7 @@ export default function AppealsPage() {
                   <CheckCircle2 className="mx-auto h-10 w-10 text-emerald-400 mb-3" />
                   <p className="text-sm text-slate-400">
                     {tab === "PENDING"
-                      ? "No pending appeals. The court is quiet."
+                      ? "No pending appeals among your known handles."
                       : "No resolved appeals yet."}
                   </p>
                 </motion.div>
@@ -223,13 +292,21 @@ function ResolveModal({
 }: {
   appeal: Appeal | null;
   onClose: () => void;
-  onResolved: (id: number) => void;
+  onResolved: (id: string) => void;
 }) {
   const [newScore, setNewScore] = useState(appeal?.currentScore ?? 80);
   const [phase, setPhase] = useState<"idle" | "submitting" | "done" | "error">("idle");
   const [errorMsg, setErrorMsg] = useState("");
   const [txHash, setTxHash] = useState("");
   const [wallets, setWallets] = useState<{ name: string; provider: any }[]>([]);
+
+  useEffect(() => {
+    setNewScore(appeal?.currentScore ?? 80);
+    setPhase("idle");
+    setErrorMsg("");
+    setTxHash("");
+    setWallets([]);
+  }, [appeal]);
 
   async function handleSubmit() {
     if (!appeal) return;
@@ -261,6 +338,9 @@ function ResolveModal({
         setPhase("error");
         return;
       }
+      // NOTE: only the wallet that is a registered validator (the address
+      // that deployed the contract, or one added via add_validator) can
+      // successfully resolve an appeal -- the contract enforces this.
       const { client: walletClient } = await createWalletClient(connection.provider);
       const result = await resolveAppeal(
         walletClient,
