@@ -5,6 +5,7 @@ import { AlertTriangle, CheckCircle2, Loader2, Send, Sparkles } from "lucide-rea
 import { useState } from "react";
 import { setScore as setGenLayerScore } from "@/lib/genlayer";
 import { createWalletClient, discoverWallets, connectWithProvider } from "@/lib/wallet";
+import { addKnownHandle } from "@/lib/known-handles";
 
 const PLATFORMS = ["github", "reddit", "discord", "twitter", "on_chain", "linkedin"];
 
@@ -74,6 +75,7 @@ export function ScoreWriter({ onSuccess }: { onSuccess?: (handle: string) => voi
       if (result.success) {
         setTxHash(result.hash ?? "");
         setPhase("done");
+        addKnownHandle(handle, platform);
         onSuccess?.(handle.toLowerCase());
       } else {
         setErrorMsg(result.error ?? "Transaction failed");
