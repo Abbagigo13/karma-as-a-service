@@ -121,6 +121,29 @@ export type WriteResult = {
   error?: string;
 };
 
+// Studio Next (Consensus v0.6) is fee-funded: every write needs an explicit,
+// non-zero `fees.feeValue` or it reverts with `FeeValueMustBeNonZero`.
+// `value` is a separate concept (a plain GEN transfer amount) and leaving it
+// at 0 is fine -- the fee has to be set via `fees`, using a real quote from
+// the SDK's own estimator rather than a guessed constant.
+async function writeWithFees(walletClient: any, functionName: string, args: any[]) {
+  const feeEstimate = await walletClient.estimateTransactionFeesForWrite({
+    address: CONTRACT_ADDRESS,
+    functionName,
+    args,
+  });
+
+  return walletClient.writeContract({
+    address: CONTRACT_ADDRESS,
+    functionName,
+    args,
+    fees: {
+      feeValue: feeEstimate.feeValue,
+      distribution: feeEstimate.distribution,
+    },
+  });
+}
+
 export async function submitAppeal(
   walletClient: any,
   user: string,
@@ -128,12 +151,7 @@ export async function submitAppeal(
   reason: string,
 ): Promise<WriteResult> {
   try {
-    const hash = await walletClient.writeContract({
-      address: CONTRACT_ADDRESS,
-      functionName: 'appeal_score',
-      args: [user, platform, reason],
-      value: BigInt(0),
-    });
+    const hash = await writeWithFees(walletClient, 'appeal_score', [user, platform, reason]);
     return { success: true, hash: String(hash) };
   } catch (error) {
     console.error('submitAppeal failed:', error);
@@ -148,12 +166,7 @@ export async function setScore(
   score: number,
 ): Promise<WriteResult> {
   try {
-    const hash = await walletClient.writeContract({
-      address: CONTRACT_ADDRESS,
-      functionName: 'set_score',
-      args: [user, platform, BigInt(score)],
-      value: BigInt(0),
-    });
+    const hash = await writeWithFees(walletClient, 'set_score', [user, platform, BigInt(score)]);
     return { success: true, hash: String(hash) };
   } catch (error) {
     console.error('setScore failed:', error);
@@ -168,12 +181,11 @@ export async function resolveAppeal(
   newScore: number,
 ): Promise<WriteResult> {
   try {
-    const hash = await walletClient.writeContract({
-      address: CONTRACT_ADDRESS,
-      functionName: 'resolve_appeal',
-      args: [user, platform, BigInt(newScore)],
-      value: BigInt(0),
-    });
+    const hash = await writeWithFees(walletClient, 'resolve_appeal', [
+      user,
+      platform,
+      BigInt(newScore),
+    ]);
     return { success: true, hash: String(hash) };
   } catch (error) {
     console.error('resolveAppeal failed:', error);
