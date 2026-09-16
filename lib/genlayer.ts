@@ -124,22 +124,35 @@ export type WriteResult = {
 // Studio Next (Consensus v0.6) is fee-funded: every write needs an explicit,
 // non-zero `fees.feeValue` or it reverts with `FeeValueMustBeNonZero`.
 // `value` is a separate concept (a plain GEN transfer amount) and leaving it
-// at 0 is fine -- the fee has to be set via `fees`, using a real quote from
-// the SDK's own estimator rather than a guessed constant.
+// at 0 is fine -- the fee has to be set via `fees`.
+//
+// NOTE: `estimateTransactionFeesForWrite` (call-specific simulation) came
+// back with a feeValue of 0 on this RC network -- likely simulation being
+// incomplete this early in the v0.6 RC line. Using the SDK's simpler,
+// documented "fee preset" pattern instead: generic time-unit allocations
+// priced against the network's live fee policy, which is what the official
+// genlayer-js docs show for exactly this error.
 async function writeWithFees(walletClient: any, functionName: string, args: any[]) {
-  const feeEstimate = await walletClient.estimateTransactionFeesForWrite({
-    address: CONTRACT_ADDRESS,
-    functionName,
-    args,
+  const feeEstimate = await walletClient.estimateTransactionFees({
+    leaderTimeunitsAllocation: BigInt(100),
+    validatorTimeunitsAllocation: BigInt(200),
+    rotations: [BigInt(0)],
   });
+
+  if (!feeEstimate?.feeValue || BigInt(feeEstimate.feeValue) <= BigInt(0)) {
+    throw new Error(
+      `Fee estimate came back as ${feeEstimate?.feeValue ?? "undefined"} -- ` +
+        `the network's fee policy may be misconfigured on this RC build.`,
+    );
+  }
 
   return walletClient.writeContract({
     address: CONTRACT_ADDRESS,
     functionName,
     args,
     fees: {
-      feeValue: feeEstimate.feeValue,
       distribution: feeEstimate.distribution,
+      feeValue: feeEstimate.feeValue,
     },
   });
 }
