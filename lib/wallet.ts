@@ -185,16 +185,19 @@ export async function createWalletClient(provider?: any, network: NetworkName = 
   const accounts: string[] = await chosen.request({ method: 'eth_requestAccounts' });
   const account = accounts[0] as `0x${string}`;
 
-  // Build the GenLayer client with an EXPLICIT RPC URL.
-  // This ensures reads (nonce, gas, chain data) go directly to the RPC
-  // instead of being routed through the wallet, which fails with "Failed to fetch".
+  // IMPORTANT: this SDK's ClientConfig has no `transport` field -- passing one
+  // is silently ignored. Wallet-signing calls (eth_sendTransaction, etc.) are
+  // routed through `provider`, falling back to `window.ethereum` if omitted.
+  // We must pass the EXACT provider the user authorized (`chosen`), or the
+  // client falls back to whatever `window.ethereum` happens to be -- a
+  // different, unauthorized wallet -- which is what caused
+  // "UnauthorizedProviderError: account has not been authorized by the user".
+  // `endpoint` still lets read calls hit the RPC directly.
   const client = createClient({
     chain: chainFor(network),
     account: account,
-    transport: {
-      type: 'http',
-      url: rpcUrlFor(network),
-    },
+    provider: chosen,
+    endpoint: rpcUrlFor(network),
   } as any);
 
   return { client, account };
