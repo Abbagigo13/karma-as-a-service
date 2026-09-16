@@ -99,6 +99,20 @@ export async function getAppealStatus(user: string, platform: string) {
   }
 }
 
+export async function getPlatformScore(user: string, platform: string): Promise<number> {
+  try {
+    const result = await client.readContract({
+      address: CONTRACT_ADDRESS,
+      functionName: 'get_score',
+      args: [user, platform],
+    });
+    return Number(result);
+  } catch (error) {
+    console.error('getPlatformScore failed:', error);
+    return 0;
+  }
+}
+
 // ---------- WRITE FUNCTIONS ----------
 
 export type WriteResult = {
